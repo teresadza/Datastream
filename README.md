@@ -26,6 +26,29 @@ its own rolling row. No monthly re-pull, no other bookkeeping.
 
 New tickers added to `config.ini` are back-seeded automatically on the next run.
 
+**Portfolio file for the app (runs every time).** Writes
+`output/portfolio_data.xlsx` in the app's template layout: sheets `assets`,
+`prices`, `fx_rates`, `portfolio_holdings`, `benchmarks`, dates as
+`YYYY-MM-DD` text.
+
+- `prices` - every monthly RI value in the master (plus the current-month row)
+  as `date, ticker, price`. `price` is the RI total return index.
+- `assets` - one row per ticker. Taken from `portfolio_inputs.xlsx`; blank
+  `name`, `local_ccy` and `region` are filled from Datastream static data.
+  Tickers listed in `benchmarks` get `asset_type = Benchmark` and
+  `is_benchmark = TRUE`; everything else defaults to `Asset` / `FALSE`.
+- `fx_rates` - `fx_to_nzd` (NZD per 1 unit of currency) for every non-NZD
+  `local_ccy`, on each price date, from the free Frankfurter service (ECB
+  reference rates, no login). If it cannot be reached, the previous run's rates
+  are kept.
+- `portfolio_holdings`, `benchmarks` - copied from `portfolio_inputs.xlsx`.
+
+The first run creates `portfolio_inputs.xlsx` next to the script, with the
+tickers and whatever Datastream knows about them. Fill in `asset_class`,
+`sector`, anything else you want to override, your holdings and your
+benchmarks there. Use the Datastream codes (e.g. `@MSFT`) as tickers
+everywhere. Your values always win over Datastream's.
+
 Force a fresh full seed any time:
 
     python datastream_extract.py --full
@@ -36,7 +59,10 @@ Force a fresh full seed any time:
 - `config.ini` - login, tickers, dates, and the incremental settings. Edit this,
   not the script.
 - `run_datastream.bat` - double-click to run on demand.
+- `portfolio_inputs.xlsx` - your asset details, holdings and benchmarks
+  (created on the first run).
 - `output/`
+  - `portfolio_data.xlsx` - the file the app reads.
   - `datastream_RI_master.csv` - the authoritative accumulating dataset
     (dates down the rows, one column per ticker). This is the source of truth.
   - `datastream_RI_latest.xlsx` - a view with two sheets, `pivot` and `long`,
@@ -50,6 +76,11 @@ Force a fresh full seed any time:
 - `start_date` - first point for the one-time seed.
 - `daily_lookback_days` - how far back to look for the latest daily point
   (covers weekends and holidays). Default 14.
+- Optional `[portfolio]` section, all with defaults: `input_file`
+  (`portfolio_inputs.xlsx`), `output_file` (`portfolio_data.xlsx`), `base_ccy`
+  (`NZD`), `fx_url` (`https://api.frankfurter.dev/v1`), and the Datastream
+  static datatypes `name_field` (`NAME`), `ccy_field` (`ISOCUR`),
+  `region_field` (`GEOGN`).
 
 ## Running it
 
@@ -61,8 +92,8 @@ Double-click `run_datastream.bat`, or from a command prompt in this folder:
 
     pip install DatastreamPy pytz openpyxl
 
-DatastreamPy, pandas and pytz fetch and shape the data. openpyxl is optional and
-only controls Excel vs CSV output.
+DatastreamPy, pandas and pytz fetch and shape the data. openpyxl is needed for
+`portfolio_data.xlsx`; without it only CSV views are written.
 
 ## Notes
 

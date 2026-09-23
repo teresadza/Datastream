@@ -16,13 +16,25 @@ Two blocks:
    on. When the month turns over, the last daily row of the old month is left in
    place as that month's value and the new month starts its own rolling row.
 
+3. Portfolio file for the app. Writes output/portfolio_data.xlsx with the
+   sheets assets, prices, fx_rates, portfolio_holdings and benchmarks:
+   - prices: the master in long form (date, ticker, price = RI).
+   - assets: from portfolio_inputs.xlsx, with blanks (name, local_ccy, region)
+     filled from Datastream static data.
+   - fx_rates: fx_to_nzd for each non-NZD currency on each price date, from
+     the free Frankfurter (ECB) FX service.
+   - portfolio_holdings, benchmarks: copied from portfolio_inputs.xlsx.
+   If portfolio_inputs.xlsx does not exist, a starter one is created.
+
 Config is in config.ini next to this file. Edit that, not the code.
 Force a fresh full seed:   python datastream_extract.py --full
 """
 
 import configparser
+import json
 import os
 import sys
+import urllib.request
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -62,6 +74,176 @@ def fetch_series(ds, ticker, field, start, end, freq):
     # comparison, sort and format downstream works.
     s.index = pd.to_datetime(s.index)
     return s.dropna()
+
+
+# ---- Portfolio file for the app ----
+
+ASSET_COLS = ["ticker", "name", "asset_type", "asset_class", "sector",
+              "region", "local_ccy", "is_benchmark"]
+HOLDING_COLS = ["portfolio_name", "effective_date", "ticker",
+                "market_value_local", "local_ccy", "weight"]
+BENCH_COLS = ["portfolio_name", "benchmark_ticker"]
+
+
+def blank(v):
+    return v is None or (isinstance(v, float) and pd.isna(v)) or str(v).strip() == ""
+
+
+def fetch_static(ds, tickers, static_fields):
+    """Datastream static values: {ticker: {field: value}}. Errors are skipped."""
+    data = ds.get_data(tickers=",".join(tickers), fields=list(static_fields), kind=0)
+    out = {}
+    for _, r in data.iterrows():
+        v = r["Value"]
+        if blank(v) or str(v).startswith("$$"):
+            continue
+        out.setdefault(r["Instrument"], {})[r["Datatype"]] = str(v).strip()
+    return out
+
+
+def build_assets(inputs_assets, tickers, benchmark_tickers, static, defaults=True):
+    """One row per ticker. Your values in portfolio_inputs.xlsx win; blanks are
+    filled from Datastream static data and, if defaults, asset_type and
+    is_benchmark (anything in the benchmarks sheet counts as a benchmark)."""
+    given = {}
+    if inputs_assets is not None:
+        for _, r in inputs_assets.iterrows():
+            if not blank(r.get("ticker")):
+                given[str(r["ticker"]).strip()] = r.to_dict()
+    order = list(given) + [t for t in tickers if t not in given]
+
+    rows = []
+    for t in order:
+        row = {c: given.get(t, {}).get(c) for c in ASSET_COLS}
+        row["ticker"] = t
+        st = static.get(t, {})
+        for col, key in (("name", "name"), ("local_ccy", "ccy"), ("region", "region")):
+            if blank(row[col]):
+                row[col] = st.get(key)
+        if defaults:
+            is_bench = t in benchmark_tickers or \
+                str(row["is_benchmark"]).strip().lower() in ("true", "1", "yes")
+            row["is_benchmark"] = is_bench
+            if blank(row["asset_type"]):
+                row["asset_type"] = "Benchmark" if is_bench else "Asset"
+        rows.append(row)
+    return pd.DataFrame(rows, columns=ASSET_COLS)
+
+
+def fetch_fx(fx_url, ccy, base_ccy, start, end):
+    """Daily rates from Frankfurter (ECB): units of base_ccy per 1 ccy."""
+    url = f"{fx_url.rstrip('/')}/{start}..{end}?base={ccy}&symbols={base_ccy}"
+    req = urllib.request.Request(url, headers={"User-Agent": "datastream-extract"})
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        payload = json.load(resp)
+    rates = {pd.Timestamp(d): v[base_ccy] for d, v in payload.get("rates", {}).items()
+             if base_ccy in v}
+    return pd.Series(rates, dtype=float).sort_index()
+
+
+def build_fx(price_dates, ccys, base_ccy, fx_url, previous, logfile):
+    """fx_to_<base> for each currency on each price date, using the last rate
+    on or before that date (month ends can fall on weekends). If the download
+    fails, that currency's rows from the previous portfolio file are kept."""
+    rows = []
+    fx_col = f"fx_to_{base_ccy.lower()}"
+    if len(price_dates) == 0:
+        return pd.DataFrame(columns=["date", "ccy", fx_col])
+    start = (price_dates.min() - timedelta(days=10)).strftime("%Y-%m-%d")
+    end = price_dates.max().strftime("%Y-%m-%d")
+    for ccy in ccys:
+        try:
+            s = fetch_fx(fx_url, ccy, base_ccy, start, end)
+            aligned = s.reindex(s.index.union(price_dates)).ffill().reindex(price_dates).dropna()
+            for d, v in aligned.items():
+                rows.append({"date": d, "ccy": ccy, "fx": float(v)})
+            log(f"OK   FX {ccy}->{base_ccy}: {len(aligned)} dates", logfile)
+        except Exception as e:
+            old = previous[previous["ccy"] == ccy] if fx_col in previous else previous.iloc[0:0]
+            for _, r in old.iterrows():
+                rows.append({"date": pd.Timestamp(r["date"]), "ccy": ccy, "fx": r[fx_col]})
+            log(f"FAIL FX {ccy}->{base_ccy}: {e}. Kept {len(old)} rows from last run.", logfile)
+    fx = pd.DataFrame(rows, columns=["date", "ccy", "fx"])
+    return fx.rename(columns={"fx": fx_col})
+
+
+def write_portfolio_file(ds, master, tickers, cfg, logfile):
+    in_path = HERE / cfg.get("portfolio", "input_file", fallback="portfolio_inputs.xlsx").strip()
+    out_path = (HERE / cfg.get("output", "folder", fallback="output").strip() /
+                cfg.get("portfolio", "output_file", fallback="portfolio_data.xlsx").strip())
+    base_ccy = cfg.get("portfolio", "base_ccy", fallback="NZD").strip().upper()
+    fx_url = cfg.get("portfolio", "fx_url", fallback="https://api.frankfurter.dev/v1").strip()
+    static_fields = {
+        "name": cfg.get("portfolio", "name_field", fallback="NAME").strip(),
+        "ccy": cfg.get("portfolio", "ccy_field", fallback="ISOCUR").strip(),
+        "region": cfg.get("portfolio", "region_field", fallback="GEOGN").strip(),
+    }
+
+    inputs = {}
+    if in_path.exists():
+        try:
+            inputs = pd.read_excel(in_path, sheet_name=None, dtype=object)
+        except Exception as e:
+            log(f"FAIL portfolio: could not read {in_path.name} ({e}). Portfolio file not written.", logfile)
+            return None
+    holdings = inputs.get("portfolio_holdings", pd.DataFrame(columns=HOLDING_COLS))
+    benchmarks = inputs.get("benchmarks", pd.DataFrame(columns=BENCH_COLS))
+    bench_tickers = set(benchmarks["benchmark_ticker"].dropna().astype(str).str.strip()) \
+        if "benchmark_ticker" in benchmarks else set()
+
+    # Static data only for what is still blank, so a filled-in inputs file
+    # costs no Datastream requests.
+    static = {}
+    assets = build_assets(inputs.get("assets"), tickers, bench_tickers, static)
+    need = assets.loc[assets[["name", "local_ccy", "region"]].apply(lambda c: c.map(blank)).any(axis=1), "ticker"].tolist()
+    if need:
+        try:
+            raw = fetch_static(ds, need, static_fields.values())
+            static = {t: {k: raw.get(t, {}).get(f) for k, f in static_fields.items()} for t in need}
+            log(f"OK   static data for {len(need)} assets", logfile)
+        except Exception as e:
+            log(f"WARN static data failed ({e}); fill name/local_ccy/region in {in_path.name}.", logfile)
+    assets = build_assets(inputs.get("assets"), tickers, bench_tickers, static)
+
+    if not in_path.exists():
+        starter = build_assets(None, tickers, set(), static, defaults=False)
+        with pd.ExcelWriter(in_path, engine="openpyxl") as xl:
+            starter.to_excel(xl, sheet_name="assets", index=False)
+            pd.DataFrame(columns=HOLDING_COLS).to_excel(xl, sheet_name="portfolio_holdings", index=False)
+            pd.DataFrame(columns=BENCH_COLS).to_excel(xl, sheet_name="benchmarks", index=False)
+        log(f"Created {in_path.name}: fill in asset_class, sector, holdings and benchmarks there.", logfile)
+
+    # prices: the master in long form, dates as YYYY-MM-DD text like the template.
+    prices = (master.reset_index()
+                    .melt(id_vars="date", var_name="ticker", value_name="price")
+                    .dropna(subset=["price"])
+                    .sort_values(["ticker", "date"]))
+
+    ccys = sorted({str(c).strip().upper() for c in assets["local_ccy"] if not blank(c)} - {base_ccy})
+    previous_fx = pd.DataFrame(columns=["date", "ccy"])
+    if out_path.exists():
+        try:
+            previous_fx = pd.read_excel(out_path, sheet_name="fx_rates")
+        except Exception:
+            pass
+    fx = build_fx(pd.DatetimeIndex(master.index), ccys, base_ccy, fx_url, previous_fx, logfile)
+
+    for df, col in ((prices, "date"), (fx, "date")):
+        df[col] = pd.to_datetime(df[col]).dt.strftime("%Y-%m-%d")
+
+    try:
+        with pd.ExcelWriter(out_path, engine="openpyxl") as xl:
+            assets.to_excel(xl, sheet_name="assets", index=False)
+            prices.to_excel(xl, sheet_name="prices", index=False)
+            fx.to_excel(xl, sheet_name="fx_rates", index=False)
+            holdings.to_excel(xl, sheet_name="portfolio_holdings", index=False)
+            benchmarks.to_excel(xl, sheet_name="benchmarks", index=False)
+    except PermissionError:
+        log(f"FAIL portfolio: {out_path.name} is open in Excel. Close it and run again.", logfile)
+        return None
+    log(f"PORTFOLIO: {out_path.name} written: {len(assets)} assets, {len(prices)} prices, "
+        f"{len(fx)} fx rows ({', '.join(ccys) or 'none'})", logfile)
+    return out_path.name
 
 
 def main():
@@ -190,8 +372,12 @@ def main():
             master.to_excel(xl, sheet_name="pivot")
             long_df.to_excel(xl, sheet_name="long", index=False)
         wrote.append(xlsx.name)
+        name = write_portfolio_file(ds, master, tickers, cfg, logfile)
+        if name:
+            wrote.append(name)
     except ImportError:
-        log("openpyxl not installed, writing CSV view instead (pip install openpyxl for Excel).", logfile)
+        log("openpyxl not installed, writing CSV view instead (pip install openpyxl for Excel). "
+            "portfolio_data.xlsx also needs openpyxl.", logfile)
         master.to_csv(out_dir / "datastream_RI_pivot_latest.csv")
         long_df.to_csv(out_dir / "datastream_RI_long_latest.csv", index=False)
         wrote += ["datastream_RI_pivot_latest.csv", "datastream_RI_long_latest.csv"]
