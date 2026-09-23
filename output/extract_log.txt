@@ -1,0 +1,41 @@
+[2026-09-14 12:12:00] SEED: full monthly pull, 19 tickers, 2000-01-31 to 2026-09-14
+[2026-09-14 12:12:01] OK   AG:HCS     seed: 20 monthly rows
+[2026-09-14 12:12:02] OK   U:EFIV     seed: 74 monthly rows
+[2026-09-14 12:12:02] OK   A:VEFIX    seed: 96 monthly rows
+[2026-09-14 12:12:03] OK   A:VGADX    seed: 142 monthly rows
+[2026-09-14 12:12:03] OK   U:VDE      seed: 264 monthly rows
+[2026-09-14 12:12:04] OK   U:GII      seed: 236 monthly rows
+[2026-09-14 12:12:04] OK   A:IAFX     seed: 174 monthly rows
+[2026-09-14 12:12:05] OK   Z:MZYZ     seed: 264 monthly rows
+[2026-09-14 12:12:05] OK   Z:USMZ     seed: 134 monthly rows
+[2026-09-14 12:12:05] OK   A:BGBLX    seed: 40 monthly rows
+[2026-09-14 12:12:06] OK   U:TEI      seed: 320 monthly rows
+[2026-09-14 12:12:06] OK   @MSFT      seed: 320 monthly rows
+[2026-09-14 12:12:07] OK   Z:NZBB     seed: 130 monthly rows
+[2026-09-14 12:12:07] OK   U:EUAD     seed: 23 monthly rows
+[2026-09-14 12:12:08] OK   U:BBMC     seed: 77 monthly rows
+[2026-09-14 12:12:08] OK   U:SPHY     seed: 171 monthly rows
+[2026-09-14 12:12:09] OK   Z:SSP1     seed: 74 monthly rows
+[2026-09-14 12:12:09] OK   A:ESTXX    seed: 122 monthly rows
+[2026-09-14 12:12:09] OK   @IBIT      seed: 32 monthly rows
+[2026-09-14 12:12:09] LIVE: current month 2026-09 from latest daily point
+[2026-09-14 12:12:10] FAIL AG:HCS     daily: Invalid format specifier '%Y-%m-%d' for object of type 'str'
+[2026-09-14 12:12:10] FAIL U:EFIV     daily: Invalid format specifier '%Y-%m-%d' for object of type 'str'
+[2026-09-14 12:12:11] FAIL A:VEFIX    daily: Invalid format specifier '%Y-%m-%d' for object of type 'str'
+[2026-09-14 12:12:11] FAIL A:VGADX    daily: Invalid format specifier '%Y-%m-%d' for object of type 'str'
+[2026-09-14 12:12:12] FAIL U:VDE      daily: Invalid format specifier '%Y-%m-%d' for object of type 'str'
+[2026-09-14 12:12:12] FAIL U:GII      daily: Invalid format specifier '%Y-%m-%d' for object of type 'str'
+[2026-09-14 12:12:13] FAIL A:IAFX     daily: Invalid format specifier '%Y-%m-%d' for object of type 'str'
+[2026-09-14 12:12:13] FAIL Z:MZYZ     daily: Invalid format specifier '%Y-%m-%d' for object of type 'str'
+[2026-09-14 12:12:13] FAIL Z:USMZ     daily: Invalid format specifier '%Y-%m-%d' for object of type 'str'
+[2026-09-14 12:12:14] FAIL A:BGBLX    daily: Invalid format specifier '%Y-%m-%d' for object of type 'str'
+[2026-09-14 12:12:14] FAIL U:TEI      daily: Invalid format specifier '%Y-%m-%d' for object of type 'str'
+[2026-09-14 12:12:15] FAIL @MSFT      daily: Invalid format specifier '%Y-%m-%d' for object of type 'str'
+[2026-09-14 12:12:15] FAIL Z:NZBB     daily: Invalid format specifier '%Y-%m-%d' for object of type 'str'
+[2026-09-14 12:12:16] FAIL U:EUAD     daily: Invalid format specifier '%Y-%m-%d' for object of type 'str'
+[2026-09-14 12:12:17] FAIL U:BBMC     daily: Invalid format specifier '%Y-%m-%d' for object of type 'str'
+[2026-09-14 12:12:17] FAIL U:SPHY     daily: Invalid format specifier '%Y-%m-%d' for object of type 'str'
+[2026-09-14 12:12:17] FAIL Z:SSP1     daily: Invalid format specifier '%Y-%m-%d' for object of type 'str'
+[2026-09-14 12:12:18] FAIL A:ESTXX    daily: Invalid format specifier '%Y-%m-%d' for object of type 'str'
+[2026-09-14 12:12:18] FAIL @IBIT      daily: Invalid format specifier '%Y-%m-%d' for object of type 'str'
+[2026-09-14 12:12:19] DONE: 38 ok, 19 failed. master=321 months x 19 tickers, live row 2026-09, frozen through 2026-08. Wrote ['datastream_RI_master.csv', 'datastream_RI_latest.xlsx'] in C:\Users\teres\Blupoint\Datastream\output
